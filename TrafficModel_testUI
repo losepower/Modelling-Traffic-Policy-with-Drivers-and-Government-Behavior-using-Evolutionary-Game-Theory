@@ -1,0 +1,1406 @@
+import numpy as np
+import random
+import matplotlib.pyplot as plt
+import pandas as pd
+from multiprocessing import Pool, cpu_count, freeze_support
+import time
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+import matplotlib
+matplotlib.use('TkAgg')
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.figure import Figure
+import os
+
+
+
+class Driver:
+    #Используйте массивы вместо словарей для хранения данных, чтобы сэкономить память и повысить скорость работы.
+    __slots__ = ['pay', 'wait', 'speeding', 'mu', 'sigma', 'exp', 
+                 'length', 'speed', 'belt', 'crashed', 'checked', 'fataled']
+
+    def __init__(self, speeding, speed, exp_road_duration, sigma_road_duration, length, belt):
+        self.pay = 0
+        self.wait = 0
+        self.speeding = bool(speeding)
+        self.mu = exp_road_duration
+        self.sigma = sigma_road_duration
+        self.exp = np.random.normal(self.mu, self.sigma)
+        self.length = length
+        self.speed = speed
+        self.belt = belt
+        self.crashed = False
+        self.checked = False
+        self.fataled = False
+
+    def rerun_exp(self):
+        self.exp = int(np.random.normal(self.mu, self.sigma))
+
+    def law(self):
+        if self.speeding:
+            print("Fast")
+        else:
+            print("Norm")
+
+
+class Goverment:
+    __slots__ = ['fatal', 'spend', 'pay', 'isStrict', 'crash_chance', 'crash',
+                 'mu', 'sigma', 'wait', 'duration', 'check_chance', 'spendings',
+                 'fee_belt', 'fee_speeding', 'maintance_coeff']
+
+    def __init__(self, isStrict, car_crash_chance, mu_wait, sigma_wait,
+                 check_duration, check_chance, traffic_spendings,
+                 fee_belt, fee_speeding, maintance_coeff, fatal):
+
+        self.fatal = fatal
+        self.spend = 0
+        self.pay = 0
+        self.isStrict = bool(isStrict)
+        self.crash_chance = car_crash_chance
+        self.crash = bool(np.random.binomial(1, car_crash_chance))
+        self.mu = mu_wait
+        self.sigma = sigma_wait
+        self.wait = np.random.normal(self.mu, self.sigma)
+        self.duration = check_duration
+        self.check_chance = check_chance
+        self.spendings = traffic_spendings
+        self.fee_belt = fee_belt
+        self.fee_speeding = fee_speeding
+        self.maintance_coeff = maintance_coeff
+
+    def rerun_wait(self):
+        self.wait = np.random.normal(self.mu, self.sigma)
+
+    def gov(self):
+        if self.isStrict:
+            print("Strict")
+        else:
+            print("Lite")
+
+
+class Env:
+    # параметры статистики
+
+    # список параметров по эпохам 
+    def __init__(self, N_drivers, fatal_chance, fatal_min,
+                 decrease_coef, fatal_coeff, crash_coeff,
+                 crash_cost, spendings_tolarance_coeff, police_dis_coeff,
+                 chance_of_mutation, delta_maintance, fee_tolarance_coeff, check_coef):
+
+        self.check_coef = check_coef
+        self.epoch = 0
+        self.fatal = []
+        self.crashes = []
+        self.Belted_NotBelted = []
+        self.Speedings = []
+        self.earns = []
+        self.Strict_Lite = []
+        self.averageWaiting = []
+        self.averageMaint = []
+        self.averageSpeed = []
+        self.amountOfFatal = []
+        self.averageWaitingNoFat = []
+        
+        self.lite_gov_chance   = chance_of_mutation
+        self.strict_gov_chance = chance_of_mutation
+        self.speeding_driver_chance = chance_of_mutation
+
+        self.N = N_drivers
+        self.fatal_chance = fatal_chance
+        self.fatal_min = fatal_min
+        self.crash_cost = crash_cost
+
+        self.decrease_coef = decrease_coef
+        self.fatal_coeff = fatal_coeff
+        self.crash_coeff = crash_coeff
+        self.spendings_coeff = spendings_tolarance_coeff
+        self.police_dis = police_dis_coeff
+
+        self.chance_of_mutation = chance_of_mutation
+        self.delta_maintance = delta_maintance
+        self.fee_tolarance_coeff = fee_tolarance_coeff
+
+    def generate(self, car_crash_chance_s, mu_wait_s, sigma_wait_s, check_duration_s, check_chance_s,
+                 traffic_spendings_s,
+                 fee_belt_min_s, fee_belt_max_s, fee_speeding_min_s, fee_speeding_max_s, maintance_coeff_s,
+
+                 car_crash_chance_l, mu_wait_l, sigma_wait_l, check_duration_l, check_chance_l,
+                 traffic_spendings_l,
+                 fee_belt_min_l, fee_belt_max_l, fee_speeding_min_l, fee_speeding_max_l, maintance_coeff_l,
+
+                 speed_n_min, speed_n_max, speed_s_min, speed_s_max, exp_road_duration, sigma_road_duration, length,
+                 fatal_chance_l, fatal_chance_s):
+
+        self.fatal_chance_l = fatal_chance_l
+        self.fatal_chance_s = fatal_chance_s
+
+        self.exp_road_duration = exp_road_duration
+        self.sigma_road_duration = sigma_road_duration
+        self.length = length
+        self.car_crash_chance_s = car_crash_chance_s
+        self.mu_wait_s = mu_wait_s
+        self.sigma_wait_s = sigma_wait_s
+        self.check_duration_s = check_duration_s
+        self.check_chance_s = check_chance_s
+        self.traffic_spendings_s = traffic_spendings_s
+        self.maintance_coeff_s = maintance_coeff_s
+
+        self.car_crash_chance_l = car_crash_chance_l
+        self.mu_wait_l = mu_wait_l
+        self.sigma_wait_l = sigma_wait_l
+        self.check_duration_l = check_duration_l
+        self.check_chance_l = check_chance_l
+        self.traffic_spendings_l = traffic_spendings_l
+        self.maintance_coeff_l = maintance_coeff_l
+
+        self.speed_n_min = speed_n_min
+        self.speed_n_max = speed_n_max
+        self.speed_s_min = speed_s_min
+        self.speed_s_max = speed_s_max
+
+        self.fee_belt_min_l = fee_belt_min_l
+        self.fee_belt_max_l = fee_belt_max_l
+        self.fee_speeding_min_l = fee_speeding_min_l
+        self.fee_speeding_max_l = fee_speeding_max_l
+
+        self.fee_belt_min_s = fee_belt_min_s
+        self.fee_belt_max_s = fee_belt_max_s
+        self.fee_speeding_min_s = fee_speeding_min_s
+        self.fee_speeding_max_s = fee_speeding_max_s
+
+        self.length = length
+        #Использование матричных операций
+        N = self.N
+    
+        isStrict = np.random.binomial(1, 0.5, N).astype(bool)
+        isSpeeding = np.random.binomial(1, 0.5, N).astype(bool)
+        isBelt = np.random.binomial(1, 0.5, N)
+    
+        fee_belt = np.where(isStrict,
+                            np.random.uniform(fee_belt_min_s, fee_belt_max_s, N).astype(int),
+                            np.random.uniform(fee_belt_min_l, fee_belt_max_l, N).astype(int))
+
+        fee_speed = np.where(isStrict,
+                            np.random.uniform(fee_speeding_min_s, fee_speeding_max_s, N).astype(int),
+                            np.random.uniform(fee_speeding_min_l, fee_speeding_max_l, N).astype(int))
+
+        speed = np.where(isSpeeding,
+                        np.random.uniform(speed_s_min, speed_s_max, N).astype(int),
+                        np.random.uniform(speed_n_min, speed_n_max, N).astype(int))
+
+        car_crash = np.where(isStrict, car_crash_chance_s, car_crash_chance_l)
+        mu_wait = np.where(isStrict, mu_wait_s, mu_wait_l)
+        sigma_wait = np.where(isStrict, sigma_wait_s, sigma_wait_l)
+        check_duration = np.where(isStrict, check_duration_s, check_duration_l)
+        check_chance = np.where(isStrict, check_chance_s, check_chance_l)
+        traffic_spendings = np.where(isStrict, traffic_spendings_s, traffic_spendings_l)
+        maintance_coeff = np.where(isStrict, maintance_coeff_s, maintance_coeff_l)
+        fatal_chance = np.where(isStrict, fatal_chance_s, fatal_chance_l)
+    
+        array_of_pairs = []
+
+        for i in range(N):
+            driver = Driver(isSpeeding[i], speed[i], exp_road_duration, 
+                            sigma_road_duration, length, isBelt[i])
+
+            government = Goverment(isStrict[i], car_crash[i], mu_wait[i],
+                                sigma_wait[i], check_duration[i], check_chance[i],
+                                traffic_spendings[i], fee_belt[i], fee_speed[i],
+                                maintance_coeff[i], fatal_chance[i])
+                                
+            array_of_pairs.append([driver, government])
+
+        self.env = np.array(array_of_pairs)
+        return array_of_pairs
+
+    def payoff_batch_optimized(self):
+        #Вычислите все сразу, используя матрицу.
+        N = self.N
+        
+        drivers = [pair[0] for pair in self.env]
+        governments = [pair[1] for pair in self.env]
+        
+        speeds = np.array([d.speed for d in drivers])
+        belts = np.array([int(d.belt) for d in drivers])
+        speedings = np.array([int(d.speeding) for d in drivers])
+        exps = np.array([d.exp for d in drivers])
+        
+        gov_fatals = np.array([g.fatal for g in governments])
+        gov_crash_chances = np.array([g.crash_chance for g in governments])
+        gov_mus = np.array([g.mu for g in governments])
+        gov_sigmas = np.array([g.sigma for g in governments])
+        gov_durations = np.array([g.duration for g in governments])
+        gov_maintance_coeffs = np.array([g.maintance_coeff for g in governments])
+        gov_check_chances = np.array([g.check_chance for g in governments])
+        gov_fee_belts = np.array([g.fee_belt for g in governments])
+        gov_fee_speedings = np.array([g.fee_speeding for g in governments])
+        gov_spendings_arr = np.array([g.spendings for g in governments])
+        
+        checks = np.random.binomial(1, gov_check_chances, N)
+        
+        fatal_probs_not_speeding = gov_fatals * (1 - belts * (1 - self.fatal_min))
+        fatal_probs_speeding = fatal_probs_not_speeding * self.fatal_coeff
+        
+        fatals = np.where(
+            speedings == 0,
+            np.random.binomial(1, fatal_probs_not_speeding, N),
+            np.random.binomial(1, fatal_probs_speeding, N)
+        )
+        
+        crash_probs_not_speeding = gov_crash_chances
+        crash_probs_speeding = gov_crash_chances * self.crash_coeff
+        
+        crashes = np.where(
+            speedings == 0,
+            np.random.binomial(1, crash_probs_not_speeding, N),
+            np.random.binomial(1, crash_probs_speeding, N)
+        )
+        
+        waitings = np.abs(np.random.normal(gov_mus, gov_sigmas, N))
+        
+        base_time_not_speeding = exps - (self.length / (speeds * gov_maintance_coeffs))
+        base_time_speeding = base_time_not_speeding * self.decrease_coef
+        
+        driver_values = np.where(
+            speedings == 0,
+            base_time_not_speeding,
+            base_time_speeding
+        )
+        driver_values = driver_values - fatals * 1e7
+        driver_values = driver_values - crashes * (waitings + gov_durations * self.check_coef)
+        driver_values = driver_values - checks * gov_durations * self.check_coef
+        
+        driver_waits_base = exps - (self.length / (speeds * gov_maintance_coeffs))
+        driver_waits = driver_waits_base - fatals * 1e7
+        driver_waits = driver_waits - crashes * (waitings + gov_durations)
+        driver_waits = driver_waits - checks * gov_durations
+        
+        gov_values = (-self.crash_cost * crashes - gov_spendings_arr) * self.spendings_coeff
+        gov_values = gov_values + checks * (1 - belts) * gov_fee_belts * self.fee_tolarance_coeff
+        gov_values = gov_values + checks * speedings * gov_fee_speedings * self.fee_tolarance_coeff
+        
+        gov_spends = (-self.crash_cost * crashes - gov_spendings_arr)
+        gov_spends = gov_spends + checks * (1 - belts) * gov_fee_belts
+        gov_spends = gov_spends + checks * speedings * gov_fee_speedings
+        
+        for i in range(N):
+            drivers[i].pay = driver_values[i]
+            drivers[i].fataled = bool(fatals[i])
+            drivers[i].crashed = bool(crashes[i])
+            drivers[i].checked = bool(checks[i])
+            drivers[i].wait = driver_waits[i]
+            governments[i].pay = gov_values[i]
+            governments[i].spend = gov_spends[i]
+
+    def collect_metrics_optimized(self, dr, gv):
+        N = len(dr)
+        
+        speeds = np.array([d.speed for d in dr])
+        fataled = np.array([int(d.fataled) for d in dr])
+        crashed = np.array([int(d.crashed) for d in dr])
+        belts = np.array([int(d.belt) for d in dr])
+        speedings = np.array([int(d.speeding) for d in dr])
+        waits = np.array([-d.wait for d in dr])
+        
+        gov_isStrict = np.array([int(g.isStrict) for g in gv])
+        gov_maintance = np.array([g.maintance_coeff for g in gv])
+        gov_spend = np.array([-g.spend for g in gv])
+        
+        fat = fataled.sum()
+        cr = crashed.sum()
+        be = belts.sum()
+        sp = speedings.sum()
+        ea = gov_spend.sum()
+        st = gov_isStrict.sum()
+        mai = gov_maintance.mean()
+        wa = waits.sum()
+        avg_speed = speeds.mean()
+        
+        non_fatal_mask = ~fataled.astype(bool)
+        wano = waits[non_fatal_mask].sum()
+        bu = int(non_fatal_mask.sum())
+        
+        return {
+            'fat': fat, 'cr': cr, 'be': be, 'sp': sp, 'ea': ea,
+            'st': st, 'wa': wa, 'mai': mai, 'avg_speed': avg_speed,
+            'wano': wano, 'bu': bu
+        }
+
+    def update_maintenance_optimized(self, gv):
+        gov_isStrict = np.array([g.isStrict for g in gv])
+        gov_maintance = np.array([g.maintance_coeff for g in gv])
+        
+        strict_mask = gov_isStrict & (gov_maintance < 1)
+        gov_maintance[strict_mask] += self.delta_maintance
+        
+        lite_mask = (~gov_isStrict) & (gov_maintance > 0.3)
+        gov_maintance[lite_mask] -= self.delta_maintance
+        
+        for i, g in enumerate(gv):
+            g.maintance_coeff = gov_maintance[i]
+
+    def cross_drivers(self, drive):
+        drivers = drive[0: int(self.N // 2)]
+        drivers = drivers.copy()
+        drivers1 = drivers.copy()
+        random.shuffle(drivers)
+        random.shuffle(drivers1)
+
+        for i in range(len(drivers)):
+            value = np.random.randint(1, 3, 1)[0]
+
+            if value == 1:
+                if drivers[i].speeding == drivers1[i].speeding:
+                    drivers[i].speeding, drivers1[i].speeding = drivers1[i].speeding, drivers[i].speeding
+                else:
+                    if drivers[i].speeding == drivers1[i].speeding:
+                        drivers[i].speed, drivers1[i].speed = drivers1[i].speed, drivers[i].speed
+                    else:
+                        d, d1 = drivers[i].speed, drivers1[i].speed
+                        if drivers[i].speeding:
+                            drivers1[i].speed = ((d - self.speed_s_min) / (self.speed_s_max - self.speed_s_min)) * (
+                                        self.speed_n_max - self.speed_n_min) + self.speed_n_min
+                            drivers[i].speed = ((d1 - self.speed_n_min) / (self.speed_n_max - self.speed_n_min)) * (
+                                        self.speed_s_max - self.speed_s_min) + self.speed_s_min
+                        else:
+                            drivers1[i].speed = ((d - self.speed_n_min) / (self.speed_n_max - self.speed_n_min)) * (
+                                        self.speed_s_max - self.speed_s_min) + self.speed_s_min
+                            drivers[i].speed = ((d1 - self.speed_s_min) / (self.speed_s_max - self.speed_s_min)) * (
+                                        self.speed_n_max - self.speed_n_min) + self.speed_n_min
+
+            if value == 2:
+                drivers[i].belt, drivers1[i].belt = drivers1[i].belt, drivers[i].belt
+
+            if value == 3:
+                drivers[i].belt, drivers1[i].belt = drivers1[i].belt, drivers[i].belt
+                if drivers[i].speeding == drivers1[i].speeding:
+                    drivers[i].speed, drivers1[i].speed = drivers1[i].speed, drivers[i].speed
+                else:
+                    d, d1 = drivers[i].speed, drivers1[i].speed
+                    if drivers[i].speeding:
+                        drivers1[i].speed = ((d - self.speed_s_min) / (self.speed_s_max - self.speed_s_min)) * (
+                                    self.speed_n_max - self.speed_n_min) + self.speed_n_min
+                        drivers[i].speed = ((d1 - self.speed_n_min) / (self.speed_n_max - self.speed_n_min)) * (
+                                    self.speed_s_max - self.speed_s_min) + self.speed_s_min
+                    else:
+                        drivers1[i].speed = ((d - self.speed_n_min) / (self.speed_n_max - self.speed_n_min)) * (
+                                    self.speed_s_max - self.speed_s_min) + self.speed_s_min
+                        drivers[i].speed = ((d1 - self.speed_s_min) / (self.speed_s_max - self.speed_s_min)) * (
+                                    self.speed_n_max - self.speed_n_min) + self.speed_n_min
+        driver = drivers + drivers1
+        return driver
+
+    def cross_gov(self, gro):
+        gov = gro[0: int(self.N // 2)]
+        gov1 = gov.copy()
+        random.shuffle(gov)
+        random.shuffle(gov1)
+        count_pr = 0
+
+        for i in range(len(gov)):
+            count_pr += gov[i].isStrict
+        # print(count_pr, len(gov) - count_pr)
+        for i in range(len(gov)):
+            speed = bool(np.random.binomial(1, 0.5))
+            belt = bool(np.random.binomial(1, 0.5))
+            maint = bool(np.random.binomial(1, 0.5))
+            if (speed or belt or maint) == False:
+                value = np.random.randint(1, 3, 1)[0]
+                if value == 1:
+                    speed = True
+                elif value == 2:
+                    belt = True
+                else:
+                    maint = True
+
+            if speed:
+                if gov[i].isStrict == gov1[i].isStrict:
+                    gov[i].fee_speeding, gov1[i].fee_speeding = gov1[i].fee_speeding, gov[i].fee_speeding
+                else:
+                    g, g1 = gov[i].fee_speeding, gov1[i].fee_speeding
+                    if gov[i].isStrict:
+                        gov1[i].fee_speeding = ((g - self.fee_speeding_min_s) / (
+                                    self.fee_speeding_max_s - self.fee_speeding_min_s)) * (
+                                                           self.fee_speeding_max_l - self.fee_speeding_min_l) + self.fee_speeding_min_l
+                        gov[i].fee_speeding = ((g1 - self.fee_speeding_min_l) / (
+                                    self.fee_speeding_max_l - self.fee_speeding_min_l)) * (
+                                                          self.fee_speeding_max_s - self.fee_speeding_min_s) + self.fee_speeding_min_s
+                    else:
+                        gov1[i].fee_speeding = ((g - self.fee_speeding_min_l) / (
+                                    self.fee_speeding_max_l - self.fee_speeding_min_l)) * (
+                                                           self.fee_speeding_max_s - self.fee_speeding_min_s) + self.fee_speeding_min_s
+                        gov[i].fee_speeding = ((g1 - self.fee_speeding_min_s) / (
+                                    self.fee_speeding_max_s - self.fee_speeding_min_s)) * (
+                                                          self.fee_speeding_max_l - self.fee_speeding_min_l) + self.fee_speeding_min_l
+
+            if belt:
+                if gov[i].isStrict == gov1[i].isStrict:
+                    gov[i].fee_belt, gov1[i].fee_belt = gov1[i].fee_belt, gov[i].fee_belt
+                else:
+                    g, g1 = gov[i].fee_belt, gov1[i].fee_belt
+                    if gov[i].isStrict:
+                        gov1[i].fee_belt = ((g - self.fee_belt_min_s) / (self.fee_belt_max_s - self.fee_belt_min_s)) * (
+                                    self.fee_belt_max_l - self.fee_belt_min_l) + self.fee_belt_min_l
+                        gov[i].fee_belt = ((g1 - self.fee_belt_min_l) / (self.fee_belt_max_l - self.fee_belt_min_l)) * (
+                                    self.fee_belt_max_s - self.fee_belt_min_s) + self.fee_belt_min_s
+                    else:
+                        gov1[i].fee_belt = ((g - self.fee_belt_min_l) / (self.fee_belt_max_l - self.fee_belt_min_l)) * (
+                                    self.fee_belt_max_s - self.fee_belt_min_s) + self.fee_belt_min_s
+                        gov[i].fee_belt = ((g1 - self.fee_belt_min_s) / (self.fee_belt_max_s - self.fee_belt_min_s)) * (
+                                    self.fee_belt_max_l - self.fee_belt_min_l) + self.fee_belt_min_l
+
+            if maint:
+                gov[i].maintance_coeff, gov1[i].maintance_coeff = gov1[i].maintance_coeff, gov[i].maintance_coeff
+
+        gove = gov + gov1
+        return gove
+
+    def mutation_driver(self, d):
+        speeding = bool(np.random.binomial(1, self.chance_of_mutation))
+        belt = bool(np.random.binomial(1, self.chance_of_mutation))
+        norm = bool(np.random.binomial(1, self.chance_of_mutation))
+        fast = bool(np.random.binomial(1, self.chance_of_mutation))
+
+        if speeding:
+            if d.speeding:
+                d.speed = np.random.uniform(self.speed_s_min, self.speed_s_max)
+            else:
+                d.speed = np.random.uniform(self.speed_n_min, self.speed_n_max)
+        if belt:
+            d.belt = not speeding
+        if fast:
+            fast_speed = np.random.uniform(self.speed_s_min, self.speed_s_max)
+            isBelt = np.random.binomial(1, 0.5)
+            d = Driver(True, fast_speed, self.exp_road_duration, self.sigma_road_duration, self.length, d.belt)
+        elif norm:
+            norm_speed = np.random.uniform(self.speed_n_min, self.speed_n_max)
+            isBelt = np.random.binomial(1, 0.5)
+            d = Driver(False, norm_speed, self.exp_road_duration, self.sigma_road_duration, self.length, d.belt)
+        return d
+
+    def mutation_gov(self, g):
+        speed = bool(np.random.binomial(1, self.chance_of_mutation))
+        belt = bool(np.random.binomial(1, self.chance_of_mutation))
+        maint = bool(np.random.binomial(1, self.chance_of_mutation))
+        srict = bool(np.random.binomial(1, self.strict_gov_chance))
+        lite = bool(np.random.binomial(1, self.lite_gov_chance))
+
+        if speed:
+            if g.isStrict:
+                g.fee_speeding = np.random.uniform(self.fee_speeding_min_s, self.fee_speeding_max_s)
+            else:
+                g.fee_speeding = np.random.uniform(self.fee_speeding_min_l, self.fee_speeding_max_l)
+
+        if belt:
+            if g.isStrict:
+                g.fee_belt = np.random.uniform(self.fee_belt_min_s, self.fee_belt_max_s)
+            else:
+                g.fee_belt = np.random.uniform(self.fee_belt_min_l, self.fee_belt_max_l)
+
+        if maint:
+            g.maintance_coeff = np.random.uniform(0.4, 1)
+
+        if srict:
+            cost_belt_fee = np.random.uniform(self.fee_belt_min_s, self.fee_belt_max_s)
+            cost_speeding_fee = np.random.uniform(self.fee_speeding_min_s, self.fee_speeding_max_s)
+
+            g = Goverment(True, self.car_crash_chance_s, self.mu_wait_s, self.sigma_wait_s,
+                          self.check_duration_s, self.check_chance_s, self.traffic_spendings_s,
+                          cost_belt_fee, cost_speeding_fee, self.maintance_coeff_s, self.fatal_chance_s)
+        elif lite:
+            cost_belt_fee = np.random.uniform(self.fee_belt_min_l, self.fee_belt_max_l)
+            cost_speeding_fee = np.random.uniform(self.fee_speeding_min_l, self.fee_speeding_max_l)
+
+            g = Goverment(False, self.car_crash_chance_l, self.mu_wait_l, self.sigma_wait_l,
+                          self.check_duration_l, self.check_chance_l, self.traffic_spendings_l,
+                          cost_belt_fee, cost_speeding_fee, self.maintance_coeff_l, self.fatal_chance_l)
+
+        return g
+
+    def run_epoch_optimized(self):
+        N = self.N
+        
+        self.payoff_batch_optimized()
+
+        dr, gv = [], []
+        for i in range(self.N):
+            dr.append(self.env[i][0])
+            gv.append(self.env[i][1])
+
+        metrics = self.collect_metrics_optimized(dr, gv)
+
+        self.fatal.append(metrics['fat'])
+        self.crashes.append(metrics['cr'])
+        self.Belted_NotBelted.append(metrics['be'] / N)
+        self.Speedings.append(metrics['sp'] / N)
+        self.Strict_Lite.append(metrics['st'] / N)
+        self.earns.append(metrics['ea'] / N)
+        self.averageWaitingNoFat.append((metrics['wano'] / metrics['bu']) * 60 if metrics['bu'] > 0 else 0)
+        self.averageWaiting.append(metrics['wa'] / N)
+        self.averageMaint.append(metrics['mai'])
+        self.averageSpeed.append(metrics['avg_speed'])
+
+        self.update_maintenance_optimized(gv)
+
+        dr_pay = np.array([d.pay for d in dr])
+        order_d = np.argsort(-dr_pay)
+        dr = [dr[i] for i in order_d]
+
+        gv_pay = np.array([g.pay for g in gv])
+        order_g = np.argsort(-gv_pay)
+        gv = [gv[i] for i in order_g]
+
+        dr = self.cross_drivers(dr)
+        gv = self.cross_gov(gv)
+
+        dr1, gv1 = [], []
+        for i in range(len(gv)):
+            dr1.append(self.mutation_driver(dr[i]))
+            gv1.append(self.mutation_gov(gv[i]))
+        
+        self.epoch = self.epoch + 1
+
+        env1 = []
+        for i in range(len(gv1)):
+            pai1 = [dr1[i], gv1[i]]
+            env1.append(pai1)
+        self.env = env1
+
+    run_epoch = run_epoch_optimized
+
+
+# Проведите один эксперимент параллельно.
+def run_single_experiment(params):
+    
+    (k, N_runs, N_epochs, N_drivers, fatal_chance, fatal_belt_min, decrease_coef, 
+     fatal_coeff, crash_coeff, crash_cost, spendings_tolarance_coeff, police_dis_coeff,
+     chance_of_mutation, delta_maintance, fee_tolarance_coeff, check_coef,
+     car_crash_chance_s, mu_wait_s, sigma_wait_s, check_duration_s, check_chance_s,
+     traffic_spendings_s, fee_belt_min_s, fee_belt_max_s, fee_speeding_min_s, 
+     fee_speeding_max_s, maintance_coeff_s,
+     car_crash_chance_l, mu_wait_l, sigma_wait_l, check_duration_l, check_chance_l,
+     traffic_spendings_l, fee_belt_min_l, fee_belt_max_l, fee_speeding_min_l,
+     fee_speeding_max_l, maintance_coeff_l,
+     speed_n_min, speed_n_max, speed_s_min, speed_s_max, exp_road_duration,
+     sigma_road_duration, length, fatal_chance_l, fatal_chance_s) = params
+    
+    env = Env(N_drivers, fatal_chance, fatal_belt_min, decrease_coef, fatal_coeff, crash_coeff,
+              crash_cost, spendings_tolarance_coeff, police_dis_coeff, chance_of_mutation, 
+              delta_maintance, fee_tolarance_coeff, check_coef)
+
+    env.generate(car_crash_chance_s, mu_wait_s, sigma_wait_s, check_duration_s, check_chance_s,
+                 traffic_spendings_s,
+                 fee_belt_min_s, fee_belt_max_s, fee_speeding_min_s, fee_speeding_max_s, maintance_coeff_s,
+                 car_crash_chance_l, mu_wait_l, sigma_wait_l, check_duration_l, check_chance_l,
+                 traffic_spendings_l,
+                 fee_belt_min_l, fee_belt_max_l, fee_speeding_min_l, fee_speeding_max_l, maintance_coeff_l,
+                 speed_n_min, speed_n_max, speed_s_min, speed_s_max, exp_road_duration, 
+                 sigma_road_duration, length, fatal_chance_l, fatal_chance_s)
+
+    for i in range(N_epochs):
+        env.run_epoch()
+    return {
+        'run_id': k,
+        'fatal': env.fatal,
+        'crashes': env.crashes,
+        'Belted_NotBelted': env.Belted_NotBelted,
+        'Speedings': env.Speedings,
+        'earns': env.earns,
+        'Strict_Lite': env.Strict_Lite,
+        'averageWaiting': env.averageWaiting,
+        'averageMaint': env.averageMaint,
+        'averageSpeed': env.averageSpeed,
+        'amountOfFatal': env.amountOfFatal,
+        'averageWaitingNoFat': env.averageWaitingNoFat
+    }
+
+
+def add_arr_parallel(results_list):
+    #Совокупные результаты экспериментов
+    if not results_list:
+        return None
+    
+    accumulated = {key: [0] * len(results_list[0][key]) for key in results_list[0].keys() if key != 'run_id'}
+    
+    for result in results_list:
+        for key in accumulated.keys():
+            for i in range(len(accumulated[key])):
+                accumulated[key][i] += result[key][i]
+    
+    return accumulated
+
+
+def add_mean_parallel(accumulated, n):
+    mean_result = {}
+    for key in accumulated.keys():
+        mean_result[key] = [x / n for x in accumulated[key]]
+    
+    return mean_result
+
+
+
+
+# Дизайн пользовательского интерфейса
+class TrafficModelGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Модель эволюции транспортного поведения")
+        self.root.geometry("1400x900")
+        
+        # Цвета темы
+        self.bg_color = "#f8f9fa"
+        self.primary_color = "#2E86AB"
+        self.secondary_color = "#A23B72"
+        self.accent_color = "#F18F01"
+        self.success_color = "#06A77D"
+        
+        # Цвет окна
+        root.configure(bg=self.bg_color)
+        
+        self.params = self.get_default_params()
+        
+        self.results = None
+        self.env_results = None
+        
+        self.current_chart_index = 0
+        
+        self.chart_names = [
+            "Количество погибших",
+            "Количество аварий", 
+            "Доля пристегнутых",
+            "Доля превышающих скорость",
+            "Доход правительства",
+            "Доля строгих правительств",
+            "Среднее время ожидания",
+            "Среднее время ожидания без смертей",
+            "Средний коэффициент обслуживания",
+            "Средняя скорость"
+        ]
+        
+        self.chart_keys = [
+            'fatal', 'crashes', 'Belted_NotBelted', 'Speedings', 'earns',
+            'Strict_Lite', 'averageWaiting', 'averageWaitingNoFat', 
+            'averageMaint', 'averageSpeed'
+        ]
+        
+        self.selected_charts = [True] * 10
+        
+        self.main_frame = ttk.Frame(root)
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.show_main_menu()
+    
+    def get_default_params(self):
+        return {
+            
+            'N_runs': 10,
+            'N_epochs': 300,
+            'N_drivers': 1000,
+            'crash_cost': 137008,
+            'fatal_chance': 0.00005,
+            'fatal_belt_min': 0.6,
+            'delta_maintance': 0.05,
+            
+            'police_dis_coeff': 0,
+            'decrease_coef': 0.8,
+            'fatal_coeff': 100,
+            'crash_coeff': 1.5,
+            'spendings_tolarance_coeff': 0.8,
+            'fee_tolarance_coeff': 0.8,
+            'chance_of_mutation': 0.09,
+            'check_coef': 60,
+            
+            'car_crash_chance_s': 0.0203,
+            'fatal_chance_s': 0.00002,
+            'mu_wait_s': 0.27,
+            'sigma_wait_s': 0.05,
+            'check_duration_s': 0.25,
+            'check_chance_s': 0.6,
+            'traffic_spendings_s': 428,
+            'fee_belt_min_s': 132,
+            'fee_belt_max_s': 221,
+            'fee_speeding_min_s': 100,
+            'fee_speeding_max_s': 1410,
+            'maintance_coeff_s': 0.8,
+            
+            'car_crash_chance_l': 0.051,
+            'fatal_chance_l': 0.00005,
+            'mu_wait_l': 0.27,
+            'sigma_wait_l': 0.05,
+            'check_duration_l': 0.25,
+            'check_chance_l': 0.4,
+            'traffic_spendings_l': 373.8,
+            'fee_belt_min_l': 10,
+            'fee_belt_max_l': 30,
+            'fee_speeding_min_l': 60,
+            'fee_speeding_max_l': 400,
+            'maintance_coeff_l': 0.6,
+            
+            'speed_n_min': 70,
+            'speed_n_max': 100,
+            'speed_s_min': 110,
+            'speed_s_max': 150,
+            'exp_road_duration': 1,
+            'sigma_road_duration': 0.1,
+            'length': 100,
+        }
+    
+    def show_main_menu(self):
+        self.clear_frame()
+        
+        container = ttk.Frame(self.main_frame)
+        container.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        
+        title_label = tk.Label(container, text="Модель эволюции\nтранспортного поведения", 
+                              font=("Arial", 28, "bold"),
+                              fg=self.primary_color,
+                              bg=self.bg_color)
+        title_label.pack(pady=30)
+        
+        subtitle_label = tk.Label(container, text="Графический интерфейс пользователя", 
+                                 font=("Arial", 12),
+                                 fg="#666",
+                                 bg=self.bg_color)
+        subtitle_label.pack(pady=(0, 40))
+        
+        btn_frame = ttk.Frame(container)
+        btn_frame.pack(pady=10)
+        
+        style = ttk.Style()
+        style.configure('Large.TButton', font=('Arial', 12), padding=15)
+        
+        start_btn = ttk.Button(btn_frame, text="▶ Начать моделирование", 
+                              command=self.start_simulation,
+                              style='Large.TButton',
+                              width=28)
+        start_btn.pack(pady=8)
+        
+        settings_btn = ttk.Button(btn_frame, text="⚙ Настройки параметров", 
+                                 command=self.show_settings,
+                                 style='Large.TButton',
+                                 width=28)
+        settings_btn.pack(pady=8)
+        
+        exit_btn = ttk.Button(btn_frame, text="✕ Выход", 
+                             command=self.root.quit,
+                             style='Large.TButton',
+                             width=28)
+        exit_btn.pack(pady=8)
+    
+    def show_settings(self):
+        self.clear_frame()
+        
+        canvas = tk.Canvas(self.main_frame, bg=self.bg_color, highlightthickness=0)
+        scrollbar_y = ttk.Scrollbar(self.main_frame, orient="vertical", command=canvas.yview)
+        scrollbar_x = ttk.Scrollbar(self.main_frame, orient="horizontal", command=canvas.xview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        title_label = tk.Label(scrollable_frame, text="Настройки параметров", 
+                              font=("Arial", 20, "bold"),
+                              fg=self.primary_color,
+                              bg=self.bg_color)
+        title_label.pack(pady=15)
+        
+        self.create_param_section(scrollable_frame, "Мета-параметры", [
+            ('N_runs', 'Количество экспериментов', 1, 100, 'int'),
+            ('N_epochs', 'Количество эпох эволюции', 1, 1000, 'int'),
+            ('N_drivers', 'Количество водителей', 100, 5000, 'int'),
+            ('crash_cost', 'Стоимость аварии', 0, 1000000, 'float'),
+            ('fatal_chance', 'Базовая вероятность смерти', 0, 0.01, 'float'),
+            ('fatal_belt_min', 'Минимальная защита ремня', 0, 1, 'float'),
+            ('delta_maintance', 'Изменение коэф. обслуживания', 0, 0.5, 'float'),
+        ])
+        
+        self.create_param_section(scrollable_frame, "Системные коэффициенты", [
+            ('police_dis_coeff', 'Коэф. роспуска полиции', 0, 1, 'float'),
+            ('decrease_coef', 'Коэффициент уменьшения', 0, 1, 'float'),
+            ('fatal_coeff', 'Коэф. штрафа за смерть', 1, 1000, 'float'),
+            ('crash_coeff', 'Коэф. штрафа за аварию', 1, 10, 'float'),
+            ('spendings_tolarance_coeff', 'Коэф. толерантности расходов', 0, 1, 'float'),
+            ('fee_tolarance_coeff', 'Коэф. толерантности штрафов', 0, 1, 'float'),
+            ('chance_of_mutation', 'Вероятность мутации', 0, 1, 'float'),
+            ('check_coef', 'Коэффициент проверки', 0, 100, 'float'),
+        ])
+        
+        self.create_param_section(scrollable_frame, "Параметры строгого правительства", [
+            ('car_crash_chance_s', 'Вероятность аварии', 0, 1, 'float'),
+            ('fatal_chance_s', 'Вероятность смерти', 0, 0.01, 'float'),
+            ('mu_wait_s', 'Среднее время ожидания', 0, 10, 'float'),
+            ('sigma_wait_s', 'Стд. откл. времени ожидания', 0, 5, 'float'),
+            ('check_duration_s', 'Длительность проверки', 0, 5, 'float'),
+            ('check_chance_s', 'Вероятность проверки', 0, 1, 'float'),
+            ('traffic_spendings_s', 'Транспортные расходы', 0, 10000, 'float'),
+            ('fee_belt_min_s', 'Мин. штраф за ремень', 0, 1000, 'float'),
+            ('fee_belt_max_s', 'Макс. штраф за ремень', 0, 1000, 'float'),
+            ('fee_speeding_min_s', 'Мин. штраф за скорость', 0, 10000, 'float'),
+            ('fee_speeding_max_s', 'Макс. штраф за скорость', 0, 10000, 'float'),
+            ('maintance_coeff_s', 'Коэффициент обслуживания', 0, 1, 'float'),
+        ])
+        
+        self.create_param_section(scrollable_frame, "Параметры мягкого правительства", [
+            ('car_crash_chance_l', 'Вероятность аварии', 0, 1, 'float'),
+            ('fatal_chance_l', 'Вероятность смерти', 0, 0.01, 'float'),
+            ('mu_wait_l', 'Среднее время ожидания', 0, 10, 'float'),
+            ('sigma_wait_l', 'Стд. откл. времени ожидания', 0, 5, 'float'),
+            ('check_duration_l', 'Длительность проверки', 0, 5, 'float'),
+            ('check_chance_l', 'Вероятность проверки', 0, 1, 'float'),
+            ('traffic_spendings_l', 'Транспортные расходы', 0, 10000, 'float'),
+            ('fee_belt_min_l', 'Мин. штраф за ремень', 0, 1000, 'float'),
+            ('fee_belt_max_l', 'Макс. штраф за ремень', 0, 1000, 'float'),
+            ('fee_speeding_min_l', 'Мин. штраф за скорость', 0, 10000, 'float'),
+            ('fee_speeding_max_l', 'Макс. штраф за скорость', 0, 10000, 'float'),
+            ('maintance_coeff_l', 'Коэффициент обслуживания', 0, 1, 'float'),
+        ])
+        
+        self.create_param_section(scrollable_frame, "Параметры водителей", [
+            ('speed_n_min', 'Мин. нормальная скорость', 0, 200, 'float'),
+            ('speed_n_max', 'Макс. нормальная скорость', 0, 200, 'float'),
+            ('speed_s_min', 'Мин. скорость при превышении', 0, 300, 'float'),
+            ('speed_s_max', 'Макс. скорость при превышении', 0, 300, 'float'),
+            ('exp_road_duration', 'Ожидаемая длительность дороги', 0, 10, 'float'),
+            ('sigma_road_duration', 'Стд. откл. длительности', 0, 5, 'float'),
+            ('length', 'Длина дороги', 0, 1000, 'float'),
+        ])
+        
+        self.create_chart_selection_section(scrollable_frame)
+        
+        btn_frame = ttk.Frame(scrollable_frame)
+        btn_frame.pack(pady=20)
+        
+        style = ttk.Style()
+        style.configure('Medium.TButton', font=('Arial', 11), padding=10)
+        
+        save_btn = ttk.Button(btn_frame, text="✓ Сохранить и вернуться", 
+                             command=self.save_and_return,
+                             style='Medium.TButton',
+                             width=22)
+        save_btn.pack(side=tk.LEFT, padx=8)
+        
+        reset_btn = ttk.Button(btn_frame, text="↺ Сбросить по умолчанию", 
+                              command=self.reset_to_defaults,
+                              style='Medium.TButton',
+                              width=22)
+        reset_btn.pack(side=tk.LEFT, padx=8)
+        
+        cancel_btn = ttk.Button(btn_frame, text="✕ Отмена", 
+                               command=self.show_main_menu,
+                               style='Medium.TButton',
+                               width=22)
+        cancel_btn.pack(side=tk.LEFT, padx=8)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+    
+    def create_param_section(self, parent, title, params):
+        group_frame = ttk.LabelFrame(parent, text=title, padding=12)
+        group_frame.pack(fill=tk.X, padx=15, pady=8)
+        
+
+        if not hasattr(self, 'param_entries'):
+            self.param_entries = {}
+        
+        unit_map = {
+            'mu_wait_s': 'сек',
+            'sigma_wait_s': 'сек',
+            'mu_wait_l': 'сек',
+            'sigma_wait_l': 'сек',
+            'check_duration_s': 'мин',
+            'check_duration_l': 'мин',
+            'exp_road_duration': 'час',
+            'sigma_road_duration': 'час',
+            
+            'length': 'км',
+            
+            'speed_n_min': 'км/ч',
+            'speed_n_max': 'км/ч',
+            'speed_s_min': 'км/ч',
+            'speed_s_max': 'км/ч',
+            
+            'traffic_spendings_s': 'руб',
+            'traffic_spendings_l': 'руб',
+            'fee_belt_min_s': 'руб',
+            'fee_belt_max_s': 'руб',
+            'fee_belt_min_l': 'руб',
+            'fee_belt_max_l': 'руб',
+            'fee_speeding_min_s': 'руб',
+            'fee_speeding_max_s': 'руб',
+            'fee_speeding_min_l': 'руб',
+            'fee_speeding_max_l': 'руб',
+            'crash_cost': 'руб',
+            
+            'maintance_coeff_s': '',
+            'maintance_coeff_l': '',
+            'fatal_chance': '',
+            'fatal_chance_s': '',
+            'fatal_chance_l': '',
+            'car_crash_chance_s': '',
+            'car_crash_chance_l': '',
+            'check_chance_s': '',
+            'check_chance_l': '',
+            'chance_of_mutation': '',
+            'check_coef': '',
+            'decrease_coef': '',
+            'fatal_coeff': '',
+            'crash_coeff': '',
+            'spendings_tolarance_coeff': '',
+            'police_dis_coeff': '',
+            'fee_tolarance_coeff': '',
+            'delta_maintance': '',
+            'fatal_belt_min': '',
+            
+            'N_runs': 'шт',
+            'N_epochs': 'шт',
+            'N_drivers': 'чел',
+        }
+        
+        for idx, (param_name, label_text, min_val, max_val, param_type) in enumerate(params):
+            row = idx // 2
+            col = idx % 2
+            
+            frame = ttk.Frame(group_frame)
+            frame.grid(row=row, column=col, sticky=tk.W, padx=8, pady=4)
+            
+            label = ttk.Label(frame, text=f"{label_text}:", width=28)
+            label.pack(side=tk.LEFT)
+            
+            entry = ttk.Entry(frame, width=12)
+            entry.insert(0, str(self.params[param_name]))
+            entry.pack(side=tk.LEFT, padx=5)
+            
+            unit = unit_map.get(param_name, '')
+            if unit:
+                unit_label = ttk.Label(frame, text=unit, 
+                                      foreground="#666", font=("Arial", 9))
+                unit_label.pack(side=tk.LEFT, padx=3)
+            
+            self.param_entries[param_name] = (entry, param_type)
+    
+    def create_chart_selection_section(self, parent):
+        group_frame = ttk.LabelFrame(parent, text="Выбор графиков для отображения", padding=12)
+        group_frame.pack(fill=tk.X, padx=15, pady=8)
+        
+        info_label = tk.Label(group_frame, 
+                             text="Отметьте графики для отображения после моделирования:",
+                             font=("Arial", 10),
+                             foreground="#666",
+                             bg=self.bg_color)
+        info_label.pack(anchor=tk.W, pady=5)
+        
+        checkbox_frame = ttk.Frame(group_frame)
+        checkbox_frame.pack(fill=tk.X, pady=8)
+        
+        self.chart_checkboxes = []
+        
+        for i, chart_name in enumerate(self.chart_names):
+            row = i // 2
+            col = i % 2
+            
+            var = tk.BooleanVar(value=True)
+            checkbox = ttk.Checkbutton(
+                checkbox_frame,
+                text=chart_name,
+                variable=var,
+                width=38
+            )
+            checkbox.grid(row=row, column=col, sticky=tk.W, padx=10, pady=3)
+            
+            self.chart_checkboxes.append(var)
+        
+        btn_frame = ttk.Frame(group_frame)
+        btn_frame.pack(fill=tk.X, pady=8)
+        
+        select_all_btn = ttk.Button(btn_frame, text="✓ Выбрать все",
+                                   command=self.select_all_charts,
+                                   width=18)
+        select_all_btn.pack(side=tk.LEFT, padx=8)
+        
+        deselect_all_btn = ttk.Button(btn_frame, text="✗ Снять все",
+                                     command=self.deselect_all_charts,
+                                     width=18)
+        deselect_all_btn.pack(side=tk.LEFT, padx=8)
+    
+    def select_all_charts(self):
+        for var in self.chart_checkboxes:
+            var.set(True)
+    
+    def deselect_all_charts(self):
+        for var in self.chart_checkboxes:
+            var.set(False)
+    
+    def save_and_return(self):
+        try:
+            for param_name, (entry, param_type) in self.param_entries.items():
+                value_str = entry.get().strip()
+                
+                if not value_str:
+                    raise ValueError(f"Параметр '{param_name}' не может быть пустым")
+                
+                if param_type == 'int':
+                    value = int(float(value_str))
+                else:
+                    value = float(value_str)
+                
+                if value < 0 and param_name not in ['crash_cost']:
+                    raise ValueError(f"Значение параметра '{param_name}' не может быть отрицательным")
+                
+                self.params[param_name] = value
+            
+
+            self.selected_charts = [var.get() for var in self.chart_checkboxes]
+            
+            if not any(self.selected_charts):
+                raise ValueError("Выберите хотя бы один график для отображения")
+            
+            messagebox.showinfo("Успех", "Параметры сохранены!")
+            self.show_main_menu()
+            
+        except ValueError as e:
+            messagebox.showerror("Ошибка", f"Ошибка проверки параметров: {str(e)}")
+    
+    def reset_to_defaults(self):
+        if messagebox.askyesno("Подтверждение", "Вы уверены, что хотите сбросить все параметры по умолчанию?"):
+            self.params = self.get_default_params()
+            self.selected_charts = [True] * 10
+            self.show_settings()
+    
+    def start_simulation(self):
+        progress_window = tk.Toplevel(self.root)
+        progress_window.title("Моделирование выполняется")
+        progress_window.geometry("450x220")
+        progress_window.transient(self.root)
+        progress_window.grab_set()
+        progress_window.configure(bg=self.bg_color)
+        
+        label = tk.Label(progress_window, text="Выполняется моделирование...", 
+                        font=("Arial", 13, "bold"),
+                        fg=self.primary_color,
+                        bg=self.bg_color)
+        label.pack(pady=25)
+        
+        progress = ttk.Progressbar(progress_window, mode='indeterminate', length=350)
+        progress.pack(fill=tk.X, padx=30, pady=10)
+        progress.start()
+        
+        status_label = tk.Label(progress_window, text="Подготовка...", 
+                               font=("Arial", 10),
+                               fg="#666",
+                               bg=self.bg_color)
+        status_label.pack(pady=10)
+        
+        self.root.after(100, lambda: self.run_simulation_in_background(progress_window, status_label))
+    
+    def run_simulation_in_background(self, progress_window, status_label):
+        try:
+            status_label.config(text="Подготовка параметров...")
+            progress_window.update()
+            
+            p = self.params
+            params_tuple = (
+                0, p['N_runs'], p['N_epochs'], p['N_drivers'], 
+                p['fatal_chance'], p['fatal_belt_min'], p['decrease_coef'],
+                p['fatal_coeff'], p['crash_coeff'], p['crash_cost'], 
+                p['spendings_tolarance_coeff'], p['police_dis_coeff'],
+                p['chance_of_mutation'], p['delta_maintance'], 
+                p['fee_tolarance_coeff'], p['check_coef'],
+                p['car_crash_chance_s'], p['mu_wait_s'], p['sigma_wait_s'], 
+                p['check_duration_s'], p['check_chance_s'],
+                p['traffic_spendings_s'], p['fee_belt_min_s'], p['fee_belt_max_s'], 
+                p['fee_speeding_min_s'], p['fee_speeding_max_s'], p['maintance_coeff_s'],
+                p['car_crash_chance_l'], p['mu_wait_l'], p['sigma_wait_l'], 
+                p['check_duration_l'], p['check_chance_l'],
+                p['traffic_spendings_l'], p['fee_belt_min_l'], p['fee_belt_max_l'], 
+                p['fee_speeding_min_l'], p['fee_speeding_max_l'], p['maintance_coeff_l'],
+                p['speed_n_min'], p['speed_n_max'], p['speed_s_min'], p['speed_s_max'], 
+                p['exp_road_duration'], p['sigma_road_duration'], p['length'], 
+                p['fatal_chance_l'], p['fatal_chance_s']
+            )
+            
+            params_list = []
+            for k in range(p['N_runs']):
+                params = list(params_tuple)
+                params[0] = k
+                params_list.append(tuple(params))
+            
+            status_label.config(text=f"Запуск {p['N_runs']} параллельных процессов...")
+            progress_window.update()
+            
+            start_time = time.time()
+            num_processes = min(cpu_count(), p['N_runs'])
+            
+            with Pool(processes=num_processes) as pool:
+                results = pool.map(run_single_experiment, params_list)
+            
+            elapsed_time = time.time() - start_time
+            
+            status_label.config(text="Объединение результатов...")
+            progress_window.update()
+            
+            accumulated = add_arr_parallel(results)
+            mean_results = add_mean_parallel(accumulated, p['N_runs'])
+            
+            env = Env(p['N_drivers'], p['fatal_chance'], p['fatal_belt_min'], 
+                     p['decrease_coef'], p['fatal_coeff'], p['crash_coeff'],
+                     p['crash_cost'], p['spendings_tolarance_coeff'], p['police_dis_coeff'], 
+                     p['chance_of_mutation'], p['delta_maintance'], 
+                     p['fee_tolarance_coeff'], p['check_coef'])
+            
+            env.fatal = mean_results['fatal']
+            env.crashes = mean_results['crashes']
+            env.Belted_NotBelted = mean_results['Belted_NotBelted']
+            env.Speedings = mean_results['Speedings']
+            env.earns = mean_results['earns']
+            env.Strict_Lite = mean_results['Strict_Lite']
+            env.averageWaiting = mean_results['averageWaiting']
+            env.averageMaint = mean_results['averageMaint']
+            env.averageSpeed = mean_results['averageSpeed']
+            env.amountOfFatal = mean_results['amountOfFatal']
+            env.averageWaitingNoFat = mean_results['averageWaitingNoFat']
+            env.epoch = p['N_epochs']
+            
+            self.results = mean_results
+            self.env_results = env
+            self.simulation_time = elapsed_time
+            self.num_processes = num_processes
+            
+            progress_window.destroy()
+            self.show_results()
+            
+        except Exception as e:
+            progress_window.destroy()
+            messagebox.showerror("Ошибка", f"Ошибка выполнения моделирования:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def show_results(self):
+        self.clear_frame()
+        
+        chart_frame = ttk.Frame(self.main_frame)
+        chart_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.fig = Figure(figsize=(11, 6.5), dpi=100, facecolor=self.bg_color)
+        self.ax = self.fig.add_subplot(111)
+        self.ax.set_facecolor('#ffffff')
+        
+        self.canvas = FigureCanvasTkAgg(self.fig, chart_frame)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        toolbar = NavigationToolbar2Tk(self.canvas, chart_frame)
+        toolbar.update()
+        
+        nav_frame = ttk.Frame(chart_frame)
+        nav_frame.pack(pady=12)
+        
+        style = ttk.Style()
+        style.configure('Nav.TButton', font=('Arial', 11), padding=8)
+        
+        prev_btn = ttk.Button(nav_frame, text="← Предыдущая", 
+                             command=self.prev_chart,
+                             style='Nav.TButton',
+                             width=16)
+        prev_btn.pack(side=tk.LEFT, padx=8)
+        
+        self.page_label = tk.Label(nav_frame, text="", 
+                                  font=("Arial", 11, "bold"),
+                                  fg=self.primary_color,
+                                  bg=self.bg_color)
+        self.page_label.pack(side=tk.LEFT, padx=15)
+        
+        next_btn = ttk.Button(nav_frame, text="Следующая →", 
+                             command=self.next_chart,
+                             style='Nav.TButton',
+                             width=16)
+        next_btn.pack(side=tk.LEFT, padx=8)
+        
+        info_frame = ttk.LabelFrame(self.main_frame, text="Статистика результатов", padding=12)
+        info_frame.pack(fill=tk.X, padx=10, pady=8)
+        
+        perf_text = f"⏱ Время: {self.simulation_time:.2f} сек  |  "
+        perf_text += f"⚙ Процессы: {self.num_processes}  |  "
+        perf_text += f"📊 Эксперименты: {self.params['N_runs']}  |  "
+        perf_text += f"🔄 Эпохи: {self.params['N_epochs']}"
+        
+        perf_label = tk.Label(info_frame, text=perf_text, 
+                             font=("Arial", 10),
+                             fg="#333",
+                             bg=self.bg_color)
+        perf_label.pack(anchor=tk.W, pady=3)
+        
+        u_speeding = np.array(self.env_results.Speedings)
+        u_belted = np.array(self.env_results.Belted_NotBelted)
+        
+        stats_text = f"🚗 Превышение скорости: {u_speeding.mean():.2%} ± {u_speeding.std():.2%}  |  "
+        stats_text += f"🔒 Пристегнутые: {u_belted.mean():.2%} ± {u_belted.std():.2%}"
+        
+        stats_label = tk.Label(info_frame, text=stats_text, 
+                              font=("Arial", 10),
+                              fg="#333",
+                              bg=self.bg_color)
+        stats_label.pack(anchor=tk.W, pady=3)
+        
+        btn_frame = ttk.Frame(self.main_frame)
+        btn_frame.pack(pady=12)
+        
+        export_chart_btn = ttk.Button(btn_frame, text="📥 Экспорт графика", 
+                                     command=self.export_chart,
+                                     style='Nav.TButton',
+                                     width=18)
+        export_chart_btn.pack(side=tk.LEFT, padx=6)
+        
+        export_data_btn = ttk.Button(btn_frame, text="📤 Экспорт данных", 
+                                    command=self.export_data,
+                                    style='Nav.TButton',
+                                    width=18)
+        export_data_btn.pack(side=tk.LEFT, padx=6)
+        
+        back_btn = ttk.Button(btn_frame, text="↩ Вернуться в меню", 
+                             command=self.show_main_menu,
+                             style='Nav.TButton',
+                             width=18)
+        back_btn.pack(side=tk.LEFT, padx=6)
+        
+        self.visible_chart_indices = [i for i, selected in enumerate(self.selected_charts) if selected]
+        
+        if not self.visible_chart_indices:
+            self.visible_chart_indices = list(range(10))
+        
+        self.current_chart_index = 0
+        self.update_chart()
+    
+    def update_chart(self):
+        if self.env_results is None:
+            return
+        
+        self.ax.clear()
+        
+        if not hasattr(self, 'visible_chart_indices'):
+            self.visible_chart_indices = list(range(10))
+        
+        actual_index = self.visible_chart_indices[self.current_chart_index]
+        
+        data_map = {
+            0: (self.env_results.fatal, "Количество погибших"),
+            1: (self.env_results.crashes, "Количество аварий"),
+            2: (self.env_results.Belted_NotBelted, "Доля пристегнутых"),
+            3: (self.env_results.Speedings, "Доля превышающих скорость"),
+            4: (self.env_results.earns, "Доход правительства"),
+            5: (self.env_results.Strict_Lite, "Доля строгих правительств"),
+            6: (self.env_results.averageWaiting, "Среднее время ожидания"),
+            7: (self.env_results.averageWaitingNoFat, "Среднее время ожидания без смертей"),
+            8: (self.env_results.averageMaint, "Средний коэффициент обслуживания"),
+            9: (self.env_results.averageSpeed, "Средняя скорость"),
+        }
+        
+        if actual_index in data_map:
+            data, title = data_map[actual_index]
+            epochs = list(range(len(data)))
+            
+            self.ax.plot(epochs, data, linewidth=2.5, color=self.primary_color, marker='o', markersize=3, alpha=0.7)
+            self.ax.set_title(title, fontsize=15, fontweight='bold', pad=15)  # 添加标题
+            self.ax.set_xlabel('Эпоха', fontsize=13, fontweight='bold')
+            self.ax.set_ylabel(title, fontsize=13, fontweight='bold')
+            self.ax.grid(True, alpha=0.3, linestyle='--')
+            self.ax.tick_params(labelsize=11)
+            
+            total_visible = len(self.visible_chart_indices)
+            self.page_label.config(text=f"{self.current_chart_index + 1} / {total_visible}")
+        
+        self.canvas.draw()
+    
+    def prev_chart(self):
+        if self.current_chart_index > 0:
+            self.current_chart_index -= 1
+            self.update_chart()
+    
+    def next_chart(self):
+        if self.current_chart_index < len(self.visible_chart_indices) - 1:
+            self.current_chart_index += 1
+            self.update_chart()
+    
+    def export_chart(self):
+        file_types = [
+            ("PNG изображение", "*.png"),
+            ("PDF документ", "*.pdf"),
+            ("SVG векторная графика", "*.svg"),
+        ]
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=file_types,
+            title="Экспорт графика"
+        )
+        
+        if filename:
+            try:
+                self.fig.savefig(filename, dpi=300, bbox_inches='tight', facecolor=self.fig.get_facecolor())
+                messagebox.showinfo("Успех", f"График экспортирован в:\n{filename}")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка экспорта: {str(e)}")
+    
+    def export_data(self):
+        file_types = [
+            ("CSV файл", "*.csv"),
+            ("Excel файл", "*.xlsx"),
+        ]
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=file_types,
+            title="Экспорт данных"
+        )
+        
+        if filename:
+            try:
+                di = {
+                    "fatal": self.env_results.fatal,
+                    "crashes": self.env_results.crashes,
+                    "belted": self.env_results.Belted_NotBelted,
+                    "speeding": self.env_results.Speedings,
+                    "earnings": self.env_results.earns,
+                    "strict": self.env_results.Strict_Lite,
+                    "avgWait": self.env_results.averageWaiting,
+                    "avgWaitNoFatal": self.env_results.averageWaitingNoFat,
+                    "avgMaint": self.env_results.averageMaint,
+                    "avgSpeed": self.env_results.averageSpeed,
+                }
+                
+                df = pd.DataFrame(di)
+                
+                if filename.endswith('.xlsx'):
+                    df.to_excel(filename, index=False)
+                else:
+                    df.to_csv(filename, index=False)
+                
+                messagebox.showinfo("Успех", f"Данные экспортированы в:\n{filename}")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка экспорта: {str(e)}")
+    
+    def clear_frame(self):
+        for widget in self.main_frame.winfo_children():
+            widget.destroy()
+        
+        if hasattr(self, 'param_entries'):
+            self.param_entries.clear()
+        
+        self.root.unbind_all("<MouseWheel>")
+
+
+
+if __name__ == '__main__':
+    freeze_support()
+    
+    root = tk.Tk()
+    app = TrafficModelGUI(root)
+    root.mainloop()
